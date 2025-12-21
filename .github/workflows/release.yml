@@ -15,7 +15,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Install dependencies (Linux)
       if: matrix.os == 'ubuntu-latest'
@@ -68,7 +68,7 @@ jobs:
           # Простой ZIP для Windows
           mkdir -p bayan-windows
           cp bayan.exe bayan-windows/
-          7z a bayan-windows.zip bayan-windows/
+          7z a bayan-windows.zip bayan-windows/ || zip -r bayan-windows.zip bayan-windows/
         else
           # Простой tar.gz для Linux
           mkdir -p bayan-linux
@@ -77,24 +77,36 @@ jobs:
         fi
     
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: bayan-${{ matrix.os }}
-        path: build/bayan-*.zip build/bayan-*.tar.gz
+        path: |
+          build/bayan-*.zip
+          build/bayan-*.tar.gz
+        retention-days: 1
 
   release:
     needs: build
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
     
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         path: artifacts
+        pattern: '*'
+        merge-multiple: true
+    
+    - name: List artifacts
+      run: |
+        echo "Downloaded artifacts:"
+        find artifacts -type f | while read file; do
+          echo "  - $file"
+        done
     
     - name: Get version
       id: get_version
@@ -107,9 +119,10 @@ jobs:
           version=$(date +'%Y.%m.%d')
         fi
         echo "version=$version" >> $GITHUB_OUTPUT
+        echo "Version: $version"
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ steps.get_version.outputs.version }}
         name: Bayan v${{ steps.get_version.outputs.version }}
@@ -133,5 +146,5 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          artifacts/**/*.zip
-          artifacts/**/*.tar.gz
+          artifacts/bayan-*.zip
+          artifacts/bayan-*.tar.gz
