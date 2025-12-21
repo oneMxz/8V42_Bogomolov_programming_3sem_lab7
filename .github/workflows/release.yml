@@ -51,20 +51,41 @@ jobs:
     - name: Install dependencies (Windows)
       shell: pwsh
       run: |
+        # Используем vcpkg для установки Boost
         git clone https://github.com/microsoft/vcpkg.git
         cd vcpkg
         .\bootstrap-vcpkg.bat
-        # Устанавливаем только библиотеки, заголовки crc идут с boost
-        .\vcpkg install boost-program-options:x64-windows boost-filesystem:x64-windows
+        
+        # Устанавливаем Boost с помощью vcpkg
+        .\vcpkg integrate install
+        .\vcpkg install boost:x64-windows
+        
+        # Устанавливаем инструменты CMake для vcpkg
+        .\vcpkg install cmake
+        
+        echo "VCPKG_ROOT=$pwd" >> $env:GITHUB_ENV
+        echo "CMAKE_TOOLCHAIN_FILE=$pwd\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
+        echo "VCPKG_DEFAULT_TRIPLET=x64-windows" >> $env:GITHUB_ENV
+        echo "PATH=$pwd;$pwd\installed\x64-windows\bin;$env:PATH" >> $env:GITHUB_ENV
     
     - name: Build (Windows)
       shell: pwsh
       run: |
-        mkdir build
+        mkdir build -ErrorAction SilentlyContinue
         cd build
-        cmake .. -G "Visual Studio 17 2022" -A x64 `
-          -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
+        
+        # Указываем полный путь к toolchain файлу
+        $VcpkgDir = "$env:GITHUB_WORKSPACE\vcpkg"
+        $ToolchainFile = "$VcpkgDir\scripts\buildsystems\vcpkg.cmake"
+        
+        cmake .. `
+          -G "Visual Studio 17 2022" `
+          -A x64 `
+          -DCMAKE_TOOLCHAIN_FILE="$ToolchainFile" `
+          -DBOOST_ROOT="$VcpkgDir\installed\x64-windows" `
+          -DBoost_USE_STATIC_LIBS=OFF `
           -DCMAKE_BUILD_TYPE=Release
+        
         cmake --build . --config Release --parallel 4
     
     - name: Test (Windows)
