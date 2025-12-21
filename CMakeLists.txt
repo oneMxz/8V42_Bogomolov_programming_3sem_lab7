@@ -98,10 +98,17 @@ if(WIN32)
 endif()
 
 # Опции компиляции
-target_compile_options(bayan PRIVATE
-    $<$<CONFIG:Release>:-O3 -DNDEBUG>
-    $<$<CONFIG:Debug>:-g -O0>
-)
+if(MSVC)
+    target_compile_options(bayan PRIVATE
+        $<$<CONFIG:Release>:/O2 /DNDEBUG>
+        $<$<CONFIG:Debug>:/Od>
+    )
+else()
+    target_compile_options(bayan PRIVATE
+        $<$<CONFIG:Release>:-O3 -DNDEBUG>
+        $<$<CONFIG:Debug>:-g -O0>
+    )
+endif()
 
 # Установка
 install(TARGETS bayan
