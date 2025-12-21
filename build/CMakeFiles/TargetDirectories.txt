@@ -1,0 +1,7 @@
+C:/lab/lab7/build/CMakeFiles/bayan.dir
+C:/lab/lab7/build/CMakeFiles/edit_cache.dir
+C:/lab/lab7/build/CMakeFiles/rebuild_cache.dir
+C:/lab/lab7/build/CMakeFiles/list_install_components.dir
+C:/lab/lab7/build/CMakeFiles/install.dir
+C:/lab/lab7/build/CMakeFiles/install/local.dir
+C:/lab/lab7/build/CMakeFiles/install/strip.dir

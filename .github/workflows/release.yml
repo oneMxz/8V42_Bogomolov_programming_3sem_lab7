@@ -1,0 +1,137 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libboost-program-options-dev \
+          libboost-filesystem-dev
+    
+    - name: Install dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install cmake -y
+    
+    - name: Configure
+      run: |
+        mkdir -p build
+        cd build
+        if [[ "${{ matrix.os }}" == "Windows" ]]; then
+          cmake -G "Visual Studio 17 2022" -A x64 ..
+        else
+          cmake -G "Unix Makefiles" ..
+        fi
+    
+    - name: Build
+      run: |
+        cd build
+        if [[ "${{ matrix.os }}" == "Windows" ]]; then
+          cmake --build . --config Release
+          # Копируем exe из Release директории
+          cp Release/bayan.exe ./ 2>/dev/null || true
+        else
+          cmake --build .
+        fi
+    
+    - name: Test
+      run: |
+        if [[ "${{ matrix.os }}" == "Windows" ]]; then
+          ./build/bayan.exe --help || true
+        else
+          ./build/bayan --help || true
+        fi
+    
+    - name: Create package
+      run: |
+        cd build
+        if [[ "${{ matrix.os }}" == "Windows" ]]; then
+          # Простой ZIP для Windows
+          mkdir -p bayan-windows
+          cp bayan.exe bayan-windows/
+          7z a bayan-windows.zip bayan-windows/
+        else
+          # Простой tar.gz для Linux
+          mkdir -p bayan-linux
+          cp bayan bayan-linux/
+          tar -czf bayan-linux.tar.gz bayan-linux/
+        fi
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: bayan-${{ matrix.os }}
+        path: build/bayan-*.zip build/bayan-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+    
+    - name: Get version
+      id: get_version
+      run: |
+        # Берем версию из CMakeLists.txt или используем дату
+        if grep -q "project(bayan VERSION" CMakeLists.txt; then
+          version=$(grep -oP 'project\(bayan VERSION \K[^)]+' CMakeLists.txt)
+          version=${version// /}
+        else
+          version=$(date +'%Y.%m.%d')
+        fi
+        echo "version=$version" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.get_version.outputs.version }}
+        name: Bayan v${{ steps.get_version.outputs.version }}
+        body: |
+          ## Bayan - Duplicate File Finder
+          
+          ### Downloads:
+          - **Windows**: `bayan-windows.zip`
+          - **Linux**: `bayan-linux.tar.gz`
+          
+          ### Usage:
+          ```bash
+          # Linux
+          tar -xzf bayan-linux.tar.gz
+          ./bayan --include . --level 0
+          
+          # Windows
+          # Extract bayan-windows.zip and run:
+          bayan.exe --include . --level 0
+          ```
+        draft: false
+        prerelease: false
+        files: |
+          artifacts/**/*.zip
+          artifacts/**/*.tar.gz
