@@ -11,106 +11,88 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Install Boost libraries
+    - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          libboost-program-options-dev \
-          libboost-filesystem-dev
+        sudo apt-get install -y cmake g++ libboost-all-dev
     
-    - name: Build with CMake
+    - name: Build
       run: |
-        # Собираем в корне, чтобы избежать проблем с путями
-        cmake -B build -DCMAKE_BUILD_TYPE=Release
-        cmake --build build --parallel 2
+        mkdir -p build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j4
     
     - name: Test
       run: |
-        ./build/bayan --help || true
+        ./build/bayan --help
     
     - name: Create Linux package
       run: |
-        cd build
-        mkdir -p bayan-linux
-        cp bayan bayan-linux/
-        tar -czf bayan-linux.tar.gz bayan-linux/
+        mkdir -p package/linux
+        cp build/bayan package/linux/
+        tar -czf bayan-linux.tar.gz package/linux
     
     - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
       with:
         name: bayan-linux
-        path: build/bayan-linux.tar.gz
+        path: bayan-linux.tar.gz
 
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30  # Увеличиваем таймаут для Windows
+    timeout-minutes: 30
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup MSVC
-      uses: ilammy/msvc-dev-cmd@v1
+    - name: Setup Visual Studio
+      uses: microsoft/setup-msbuild@v1
     
-    - name: Download Boost (Windows)
-      shell: powershell
+    - name: Install dependencies (Windows)
+      shell: pwsh
       run: |
-        # Скачиваем предсобранный Boost для MSVC
-        $url = "https://github.com/Kitware/CMake/releases/download/v3.28.1/cmake-3.28.1-windows-x86_64.zip"
-        $output = "cmake.zip"
+        # Используем vcpkg для установки Boost
+        git clone https://github.com/microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg install boost-program-options:x64-windows boost-filesystem:x64-windows
         
-        # Скачиваем CMake отдельно
-        Invoke-WebRequest -Uri $url -OutFile $output
-        Expand-Archive -Path $output -DestinationPath "C:/cmake"
-        
-        # Добавляем CMake в PATH
-        echo "C:\cmake\cmake-3.28.1-windows-x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-        
-        # Скачиваем Boost
-        $boostUrl = "https://boostorg.jfrog.io/artifactory/main/release/1.83.0/binaries/boost_1_83_0-msvc-14.3-64.exe"
-        $boostExe = "boost.exe"
-        Invoke-WebRequest -Uri $boostUrl -OutFile $boostExe
-        
-        # Устанавливаем Boost в C:/boost
-        Start-Process -Wait -FilePath .\boost.exe -ArgumentList "/VERYSILENT", "/DIR=C:\boost"
+        echo "VCPKG_ROOT=$pwd" >> $env:GITHUB_ENV
+        echo "CMAKE_TOOLCHAIN_FILE=$pwd\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
     
-    - name: Build with CMake (Windows)
-      shell: powershell
+    - name: Build (Windows)
+      shell: pwsh
       run: |
-        # Устанавливаем переменные окружения для Boost
-        $env:BOOST_ROOT = "C:\boost"
-        $env:BOOST_INCLUDEDIR = "C:\boost"
-        $env:BOOST_LIBRARYDIR = "C:\boost\lib64-msvc-14.3"
-        
-        # Собираем
-        cmake -B build -G "Visual Studio 17 2022" -A x64 `
-          -DBOOST_ROOT="C:\boost" `
-          -DBOOST_INCLUDEDIR="C:\boost" `
-          -DBOOST_LIBRARYDIR="C:\boost\lib64-msvc-14.3"
-        
-        cmake --build build --config Release --parallel 2
+        mkdir build
+        cd build
+        cmake .. -G "Visual Studio 17 2022" -A x64 `
+          -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
+          -DCMAKE_BUILD_TYPE=Release
+        cmake --build . --config Release --parallel 4
     
     - name: Test (Windows)
-      shell: powershell
+      shell: pwsh
       run: |
-        .\build\Release\bayan.exe --help || echo "Test completed"
+        .\build\bayan.exe --help || echo "Test completed"
     
     - name: Create Windows package
-      shell: powershell
+      shell: pwsh
       run: |
-        cd build
-        mkdir bayan-windows
-        copy Release\bayan.exe bayan-windows\
-        Compress-Archive -Path bayan-windows -DestinationPath bayan-windows.zip
+        mkdir package/windows
+        copy build\bayan.exe package\windows\
+        Compress-Archive -Path package\windows -DestinationPath bayan-windows.zip
     
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
       with:
         name: bayan-windows
-        path: build/bayan-windows.zip
+        path: bayan-windows.zip
 
   create-release:
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - uses: actions/checkout@v4
@@ -120,13 +102,8 @@ jobs:
       with:
         path: ./artifacts
     
-    - name: Display structure of downloaded files
-      run: ls -R artifacts/
-    
     - name: Create Release
       uses: softprops/action-gh-release@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: v1.0.${{ github.run_number }}
         name: Bayan v1.0.${{ github.run_number }}

@@ -7,7 +7,7 @@
 				{
 					"build" : ".",
 					"hasInstallRule" : true,
-					"jsonFile" : "directory-.-Debug-b70a49646f48f3a8d34b.json",
+					"jsonFile" : "directory-.-Debug-6939035f78842ab31dff.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.15"
@@ -40,7 +40,7 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "bayan::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-bayan-Debug-bf6615f7ff5f084dc89f.json",
+					"jsonFile" : "target-bayan-Debug-2ab933d5e986ccfed764.json",
 					"name" : "bayan",
 					"projectIndex" : 0
 				}
