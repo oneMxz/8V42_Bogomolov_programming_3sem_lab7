@@ -55,7 +55,7 @@ jobs:
         git clone https://github.com/microsoft/vcpkg.git
         cd vcpkg
         .\bootstrap-vcpkg.bat
-        .\vcpkg install boost-program-options:x64-windows boost-filesystem:x64-windows boost-crc:x64-windows  
+            .\vcpkg install boost-program-options:x64-windows boost-filesystem:x64-windows 
         
         echo "VCPKG_ROOT=$pwd" >> $env:GITHUB_ENV
         echo "CMAKE_TOOLCHAIN_FILE=$pwd\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV

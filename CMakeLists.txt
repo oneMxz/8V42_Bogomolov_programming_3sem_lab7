@@ -54,7 +54,7 @@ set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 
 # Компоненты Boost
-set(BOOST_COMPONENTS filesystem program_options crc)
+set(BOOST_COMPONENTS filesystem program_options)
 
 # Поиск Boost
 find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
@@ -89,8 +89,7 @@ add_executable(bayan ${SOURCE_FILES})
 # Подключение Boost библиотек
 target_link_libraries(bayan PRIVATE
     Boost::filesystem
-    Boost::program_options
-    Boost::crc 
+    Boost::program_options 
 )
 
 # Дополнительные библиотеки для Windows
