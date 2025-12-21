@@ -53,13 +53,31 @@ set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 
-if(WIN32)
-    set(BOOST_COMPONENTS filesystem program_options crc)
-    find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+# Компоненты Boost - только те, что имеют библиотеки
+set(BOOST_COMPONENTS filesystem program_options)
+
+# Поиск Boost
+find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+# Проверяем наличие заголовка boost/crc.hpp
+find_path(BOOST_CRC_INCLUDE_DIR boost/crc.hpp
+    PATHS ${Boost_INCLUDE_DIRS}
+    PATH_SUFFIXES boost
+)
+
+if(BOOST_CRC_INCLUDE_DIR)
+    message(STATUS "Found boost/crc.hpp: ${BOOST_CRC_INCLUDE_DIR}")
 else()
-    # Для Linux ищем только библиотеки, заголовки crc будут в общих include
-    set(BOOST_COMPONENTS filesystem program_options)
-    find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+    message(WARNING "boost/crc.hpp not found in ${Boost_INCLUDE_DIRS}")
+    # Для Windows ищем в альтернативных путях
+    if(WIN32)
+        find_path(BOOST_CRC_INCLUDE_DIR boost/crc.hpp
+            PATHS "C:/local/boost/include" "C:/boost/include"
+        )
+    endif()
+endif()
+
+if(NOT BOOST_CRC_INCLUDE_DIR)
+    message(FATAL_ERROR "boost/crc.hpp not found! Install boost development headers.")
 endif()
 
 if(Boost_FOUND)
@@ -94,7 +112,6 @@ if(WIN32)
     target_link_libraries(bayan PRIVATE
         Boost::filesystem
         Boost::program_options
-        Boost::crc
     )
 else()
     target_link_libraries(bayan PRIVATE

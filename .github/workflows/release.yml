@@ -51,14 +51,11 @@ jobs:
     - name: Install dependencies (Windows)
       shell: pwsh
       run: |
-        # Используем vcpkg для установки Boost
         git clone https://github.com/microsoft/vcpkg.git
         cd vcpkg
         .\bootstrap-vcpkg.bat
-            .\vcpkg install boost-program-options:x64-windows boost-filesystem:x64-windows 
-        
-        echo "VCPKG_ROOT=$pwd" >> $env:GITHUB_ENV
-        echo "CMAKE_TOOLCHAIN_FILE=$pwd\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
+        # Устанавливаем только библиотеки, заголовки crc идут с boost
+        .\vcpkg install boost-program-options:x64-windows boost-filesystem:x64-windows
     
     - name: Build (Windows)
       shell: pwsh
