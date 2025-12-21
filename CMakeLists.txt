@@ -53,11 +53,14 @@ set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 
-# Компоненты Boost
-set(BOOST_COMPONENTS filesystem program_options)
-
-# Поиск Boost
-find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+if(WIN32)
+    set(BOOST_COMPONENTS filesystem program_options crc)
+    find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+else()
+    # Для Linux ищем только библиотеки, заголовки crc будут в общих include
+    set(BOOST_COMPONENTS filesystem program_options)
+    find_package(Boost 1.65.0 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+endif()
 
 if(Boost_FOUND)
     message(STATUS "=========================================")
@@ -87,10 +90,19 @@ set(SOURCE_FILES
 add_executable(bayan ${SOURCE_FILES})
 
 # Подключение Boost библиотек
-target_link_libraries(bayan PRIVATE
-    Boost::filesystem
-    Boost::program_options 
-)
+if(WIN32)
+    target_link_libraries(bayan PRIVATE
+        Boost::filesystem
+        Boost::program_options
+        Boost::crc
+    )
+else()
+    target_link_libraries(bayan PRIVATE
+        Boost::filesystem
+        Boost::program_options
+        # Boost::crc не нужен для Linux, это header-only
+    )
+endif()
 
 # Дополнительные библиотеки для Windows
 if(WIN32)
