@@ -1,131 +1,135 @@
-name: Build and Release
+name: Build Bayan
 
 on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install dependencies (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          libboost-program-options-dev \
-          libboost-filesystem-dev
-    
-    - name: Install dependencies (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-        choco install cmake -y
-    
-    - name: Configure
-      run: |
-        mkdir -p build
-        cd build
-        if [[ "${{ matrix.os }}" == "Windows" ]]; then
-          cmake -G "Visual Studio 17 2022" -A x64 ..
-        else
-          cmake -G "Unix Makefiles" ..
-        fi
-    
-    - name: Build
-      run: |
-        cd build
-        if [[ "${{ matrix.os }}" == "Windows" ]]; then
-          cmake --build . --config Release
-          # Копируем exe из Release директории
-          cp Release/bayan.exe ./ 2>/dev/null || true
-        else
-          cmake --build .
-        fi
-    
-    - name: Test
-      run: |
-        if [[ "${{ matrix.os }}" == "Windows" ]]; then
-          ./build/bayan.exe --help || true
-        else
-          ./build/bayan --help || true
-        fi
-    
-    - name: Create package
-      run: |
-        cd build
-        if [[ "${{ matrix.os }}" == "Windows" ]]; then
-          # Простой ZIP для Windows
-          mkdir -p bayan-windows
-          cp bayan.exe bayan-windows/
-          7z a bayan-windows.zip bayan-windows/ || zip -r bayan-windows.zip bayan-windows/
-        else
-          # Простой tar.gz для Linux
-          mkdir -p bayan-linux
-          cp bayan bayan-linux/
-          tar -czf bayan-linux.tar.gz bayan-linux/
-        fi
-    
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: bayan-${{ matrix.os }}
-        path: |
-          build/bayan-*.zip
-          build/bayan-*.tar.gz
-        retention-days: 1
-
-  release:
-    needs: build
+  build-linux:
     runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@v4
+    
+    - name: Install Boost libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libboost-program-options-dev \
+          libboost-filesystem-dev
+    
+    - name: Build with CMake
+      run: |
+        # Собираем в корне, чтобы избежать проблем с путями
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --parallel 2
+    
+    - name: Test
+      run: |
+        ./build/bayan --help || true
+    
+    - name: Create Linux package
+      run: |
+        cd build
+        mkdir -p bayan-linux
+        cp bayan bayan-linux/
+        tar -czf bayan-linux.tar.gz bayan-linux/
+    
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v4
       with:
-        fetch-depth: 0
+        name: bayan-linux
+        path: build/bayan-linux.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30  # Увеличиваем таймаут для Windows
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+    
+    - name: Download Boost (Windows)
+      shell: powershell
+      run: |
+        # Скачиваем предсобранный Boost для MSVC
+        $url = "https://github.com/Kitware/CMake/releases/download/v3.28.1/cmake-3.28.1-windows-x86_64.zip"
+        $output = "cmake.zip"
+        
+        # Скачиваем CMake отдельно
+        Invoke-WebRequest -Uri $url -OutFile $output
+        Expand-Archive -Path $output -DestinationPath "C:/cmake"
+        
+        # Добавляем CMake в PATH
+        echo "C:\cmake\cmake-3.28.1-windows-x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+        
+        # Скачиваем Boost
+        $boostUrl = "https://boostorg.jfrog.io/artifactory/main/release/1.83.0/binaries/boost_1_83_0-msvc-14.3-64.exe"
+        $boostExe = "boost.exe"
+        Invoke-WebRequest -Uri $boostUrl -OutFile $boostExe
+        
+        # Устанавливаем Boost в C:/boost
+        Start-Process -Wait -FilePath .\boost.exe -ArgumentList "/VERYSILENT", "/DIR=C:\boost"
+    
+    - name: Build with CMake (Windows)
+      shell: powershell
+      run: |
+        # Устанавливаем переменные окружения для Boost
+        $env:BOOST_ROOT = "C:\boost"
+        $env:BOOST_INCLUDEDIR = "C:\boost"
+        $env:BOOST_LIBRARYDIR = "C:\boost\lib64-msvc-14.3"
+        
+        # Собираем
+        cmake -B build -G "Visual Studio 17 2022" -A x64 `
+          -DBOOST_ROOT="C:\boost" `
+          -DBOOST_INCLUDEDIR="C:\boost" `
+          -DBOOST_LIBRARYDIR="C:\boost\lib64-msvc-14.3"
+        
+        cmake --build build --config Release --parallel 2
+    
+    - name: Test (Windows)
+      shell: powershell
+      run: |
+        .\build\Release\bayan.exe --help || echo "Test completed"
+    
+    - name: Create Windows package
+      shell: powershell
+      run: |
+        cd build
+        mkdir bayan-windows
+        copy Release\bayan.exe bayan-windows\
+        Compress-Archive -Path bayan-windows -DestinationPath bayan-windows.zip
+    
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bayan-windows
+        path: build/bayan-windows.zip
+
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
     
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
-        path: artifacts
-        pattern: '*'
-        merge-multiple: true
+        path: ./artifacts
     
-    - name: List artifacts
-      run: |
-        echo "Downloaded artifacts:"
-        find artifacts -type f | while read file; do
-          echo "  - $file"
-        done
-    
-    - name: Get version
-      id: get_version
-      run: |
-        # Берем версию из CMakeLists.txt или используем дату
-        if grep -q "project(bayan VERSION" CMakeLists.txt; then
-          version=$(grep -oP 'project\(bayan VERSION \K[^)]+' CMakeLists.txt)
-          version=${version// /}
-        else
-          version=$(date +'%Y.%m.%d')
-        fi
-        echo "version=$version" >> $GITHUB_OUTPUT
-        echo "Version: $version"
+    - name: Display structure of downloaded files
+      run: ls -R artifacts/
     
     - name: Create Release
       uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: v${{ steps.get_version.outputs.version }}
-        name: Bayan v${{ steps.get_version.outputs.version }}
+        tag_name: v1.0.${{ github.run_number }}
+        name: Bayan v1.0.${{ github.run_number }}
         body: |
           ## Bayan - Duplicate File Finder
           
@@ -143,8 +147,8 @@ jobs:
           # Extract bayan-windows.zip and run:
           bayan.exe --include . --level 0
           ```
+        files: |
+          artifacts/bayan-linux/bayan-linux.tar.gz
+          artifacts/bayan-windows/bayan-windows.zip
         draft: false
         prerelease: false
-        files: |
-          artifacts/bayan-*.zip
-          artifacts/bayan-*.tar.gz
