@@ -37,15 +37,15 @@ jobs:
       with:
         name: bayan-linux
         path: bayan-linux.tar.gz
-
+        
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 10  # Быстрая сборка
+    timeout-minutes: 10
     
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Setup MSYS2 with MinGW
+
+    - name: Setup MSYS2 with MinGW and Ninja
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
@@ -54,24 +54,24 @@ jobs:
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-gcc-libs
           mingw-w64-x86_64-boost
-          make
+          mingw-w64-x86_64-ninja  # Используем Ninja вместо make
     
-    - name: Build with MinGW
+    - name: Build with Ninja
       shell: msys2 {0}
       run: |
         export PATH="/mingw64/bin:$PATH"
         
         mkdir -p build && cd build
         
-        # Быстрая сборка с MinGW
+        # Используем Ninja вместо Make
         cmake .. \
-          -G "MinGW Makefiles" \
+          -G "Ninja" \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_CXX_COMPILER=g++ \
           -DCMAKE_C_COMPILER=gcc
         
-        make -j$(nproc)
-    
+        # Ninja автоматически использует все ядра
+        ninja
     - name: Test
       shell: msys2 {0}
       run: |
