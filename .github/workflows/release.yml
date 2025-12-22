@@ -40,65 +40,49 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 10  # Быстрая сборка
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup Visual Studio
-      uses: microsoft/setup-msbuild@v1
+    - name: Setup MSYS2 with MinGW
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        install: |
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-gcc-libs
+          mingw-w64-x86_64-boost
+          make
     
-    - name: Install dependencies (Windows)
-      shell: pwsh
+    - name: Build with MinGW
+      shell: msys2 {0}
       run: |
-        # Используем vcpkg для установки Boost
-        git clone https://github.com/microsoft/vcpkg.git
-        cd vcpkg
-        .\bootstrap-vcpkg.bat
+        export PATH="/mingw64/bin:$PATH"
         
-        # Устанавливаем Boost с помощью vcpkg
-        .\vcpkg integrate install
-        .\vcpkg install boost:x64-windows
+        mkdir -p build && cd build
         
-        # Устанавливаем инструменты CMake для vcpkg
-        .\vcpkg install cmake
+        # Быстрая сборка с MinGW
+        cmake .. \
+          -G "MinGW Makefiles" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_COMPILER=g++ \
+          -DCMAKE_C_COMPILER=gcc
         
-        echo "VCPKG_ROOT=$pwd" >> $env:GITHUB_ENV
-        echo "CMAKE_TOOLCHAIN_FILE=$pwd\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
-        echo "VCPKG_DEFAULT_TRIPLET=x64-windows" >> $env:GITHUB_ENV
-        echo "PATH=$pwd;$pwd\installed\x64-windows\bin;$env:PATH" >> $env:GITHUB_ENV
+        make -j$(nproc)
     
-    - name: Build (Windows)
-      shell: pwsh
+    - name: Test
+      shell: msys2 {0}
       run: |
-        mkdir build -ErrorAction SilentlyContinue
-        cd build
-        
-        # Указываем полный путь к toolchain файлу
-        $VcpkgDir = "$env:GITHUB_WORKSPACE\vcpkg"
-        $ToolchainFile = "$VcpkgDir\scripts\buildsystems\vcpkg.cmake"
-        
-        cmake .. `
-          -G "Visual Studio 17 2022" `
-          -A x64 `
-          -DCMAKE_TOOLCHAIN_FILE="$ToolchainFile" `
-          -DBOOST_ROOT="$VcpkgDir\installed\x64-windows" `
-          -DBoost_USE_STATIC_LIBS=OFF `
-          -DCMAKE_BUILD_TYPE=Release
-        
-        cmake --build . --config Release --parallel 4
-    
-    - name: Test (Windows)
-      shell: pwsh
-      run: |
-        .\build\bayan.exe --help || echo "Test completed"
+        ./build/bayan.exe --help || echo "Test completed"
     
     - name: Create Windows package
       shell: pwsh
       run: |
-        mkdir package/windows
-        copy build\bayan.exe package\windows\
-        Compress-Archive -Path package\windows -DestinationPath bayan-windows.zip
+        mkdir -Force package/windows
+        Copy-Item build/bayan.exe package/windows/
+        Compress-Archive -Path package/windows -DestinationPath bayan-windows.zip
     
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
