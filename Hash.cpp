@@ -9,17 +9,55 @@
 
 Hash::Hash(size_t block_size) : block_size(block_size) {}
 
+// Конструктор - НЕ читает с диска!
 Hash::FileHandle::FileHandle(const boost::filesystem::path& file_path)
-    : path(file_path), size(0), stream(), block_cache() {
-    try {
-        size = boost::filesystem::file_size(file_path);
-        stream = std::make_unique<std::ifstream>(file_path.string(), std::ios::binary);
+    : path(file_path), size(0), stream(nullptr), block_cache() {
+    // Пусто - ничего не читаем и не открываем!
+}
+
+// Ленивое получение размера файла
+uintmax_t Hash::FileHandle::get_size() const {
+    if (size == 0) {  // Еще не читали размер
+        try {
+            size = boost::filesystem::file_size(path);
+        } catch (const std::exception&) {
+            size = 0;
+        }
+    }
+    return size;
+}
+
+// Ленивое открытие файла
+void Hash::FileHandle::ensure_opened() const {
+    if (!stream) {  // Еще не открывали файл
+        stream = std::make_unique<std::ifstream>(path.string(), std::ios::binary);
         if (!stream->is_open()) {
             stream.reset();
         }
-    } catch (const std::exception&) {
-        stream.reset();
     }
+}
+
+// Ленивое получение потока
+std::ifstream& Hash::FileHandle::get_stream() const {
+    ensure_opened();  // Открываем файл при первом обращении
+    return *stream;
+}
+
+// Закрытие потока
+void Hash::FileHandle::close_stream() {
+    if (stream) {
+        stream->close();
+    }
+}
+
+bool Hash::FileHandle::is_valid() const {
+    return get_size() > 0;  // Вызовет ленивое чтение размера
+}
+
+void Hash::FileHandle::close() { 
+    stream.reset(); 
+    size = 0;
+    block_cache.clear();
 }
 
 std::string Hash::hash_crc32(const std::string &data) {
@@ -39,23 +77,30 @@ std::string Hash::get_block_hash(FileHandle& handle, size_t block_index) {
         return it->second;
     }
 
+    // Ленивая проверка валидности
     if (!handle.is_valid()) {
         return "";
     }
 
+    uintmax_t file_size = handle.get_size();  // Уже кэширован после is_valid()
+    
     // Позиционируемся на нужный блок
-    std::ifstream& file = *handle.stream;
+    std::ifstream& file = handle.get_stream();  // Откроет файл только сейчас!
+    if (!file.is_open()) {
+        return "";
+    }
+    
     file.clear();
     uintmax_t file_pos = block_index * block_size;
     
-    if (file_pos >= handle.size) {
+    if (file_pos >= file_size) {
         return "";
     }
     
     file.seekg(file_pos, std::ios::beg);
 
     // Определяем сколько байт читать
-    uintmax_t bytes_to_read = std::min(block_size, handle.size - file_pos);
+    uintmax_t bytes_to_read = std::min(block_size, file_size - file_pos);
     
     if (bytes_to_read == 0) {
         return "";
@@ -84,12 +129,13 @@ std::string Hash::get_block_hash(FileHandle& handle, size_t block_index) {
 
 bool Hash::compare_handles_from_block(FileHandle& handle1, FileHandle& handle2,
                                      size_t start_block) {
-    if (handle1.size != handle2.size) {
+    // Ленивое сравнение размеров
+    if (handle1.get_size() != handle2.get_size()) {
         return false;
     }
 
     // Вычисляем количество блоков
-    size_t total_blocks = (handle1.size + block_size - 1) / block_size;
+    size_t total_blocks = (handle1.get_size() + block_size - 1) / block_size;
 
     // Сравниваем блок за блоком
     for (size_t block_idx = start_block; block_idx < total_blocks; block_idx++) {
@@ -109,26 +155,22 @@ bool Hash::compare_handles_from_block(FileHandle& handle1, FileHandle& handle2,
 }
 
 std::vector<std::vector<boost::filesystem::path>>
-Hash::find_real_duplicates(const std::vector<std::vector<boost::filesystem::path>>& size_groups) {
+Hash::find_real_duplicates_lazy(const std::vector<std::vector<boost::filesystem::path>>& size_groups) {
     std::vector<std::vector<boost::filesystem::path>> result;
 
     for (const auto& group : size_groups) {
         if (group.size() < 2) continue;
 
-        // Создаем хэндлы для всех файлов
-        std::vector<FileHandle> handles;
-        handles.reserve(group.size());
-
-        for (const auto& path : group) {
-            handles.emplace_back(path);
-        }
-
         // Вектор для отслеживания обработанных файлов
-        std::vector<bool> processed(handles.size(), false);
+        std::vector<bool> processed(group.size(), false);
 
-        // Проходим по всем файлам
-        for (size_t i = 0; i < handles.size(); ++i) {
-            if (processed[i] || !handles[i].is_valid()) {
+        for (size_t i = 0; i < group.size(); ++i) {
+            if (processed[i]) continue;
+
+            // Создаем FileHandle для текущего файла ТОЛЬКО СЕЙЧАС
+            std::unique_ptr<FileHandle> handle_i = std::make_unique<FileHandle>(group[i]);
+            if (!handle_i->is_valid()) {
+                processed[i] = true;
                 continue;
             }
 
@@ -136,15 +178,26 @@ Hash::find_real_duplicates(const std::vector<std::vector<boost::filesystem::path
             std::vector<boost::filesystem::path> duplicate_group;
             duplicate_group.push_back(group[i]);
 
-            // Ищем дубликаты среди оставшихся файлов
-            for (size_t j = i + 1; j < handles.size(); ++j) {
-                if (processed[j] || !handles[j].is_valid()) {
+            // Сравниваем с остальными файлами
+            for (size_t j = i + 1; j < group.size(); ++j) {
+                if (processed[j]) continue;
+
+                // Создаем FileHandle для второго файла ТОЛЬКО СЕЙЧАС
+                std::unique_ptr<FileHandle> handle_j = std::make_unique<FileHandle>(group[j]);
+                if (!handle_j->is_valid()) {
+                    processed[j] = true;
                     continue;
                 }
 
-                if (compare_handles_from_block(handles[i], handles[j], 0)) {
+                // Сравниваем файлы
+                if (compare_handles_from_block(*handle_i, *handle_j, 0)) {
                     duplicate_group.push_back(group[j]);
                     processed[j] = true;
+                    // Закрываем поток второго файла, так как он больше не понадобится
+                    handle_j->close_stream();
+                } else {
+                    // Закрываем поток второго файла, чтобы не держать открытым
+                    handle_j->close_stream();
                 }
             }
 
@@ -154,60 +207,8 @@ Hash::find_real_duplicates(const std::vector<std::vector<boost::filesystem::path
             }
 
             processed[i] = true;
-        }
-    }
-
-    return result;
-}
-
-std::vector<std::vector<boost::filesystem::path>>
-Hash::find_real_duplicates_optimized(const std::vector<std::vector<boost::filesystem::path>>& size_groups) {
-    std::vector<std::vector<boost::filesystem::path>> result;
-
-    for (const auto& group : size_groups) {
-        if (group.size() < 2) continue;
-
-        // Создаем хэндлы
-        std::vector<std::unique_ptr<FileHandle>> handles;
-        for (const auto& path : group) {
-            handles.push_back(std::make_unique<FileHandle>(path));
-        }
-
-        // Группы дубликатов
-        std::vector<std::vector<size_t>> duplicate_indices;
-
-        // Для каждого файла ищем дубликаты
-        for (size_t i = 0; i < handles.size(); ++i) {
-            if (!handles[i]->is_valid()) continue;
-
-            bool found_group = false;
-            
-            // Проверяем существующие группы
-            for (auto& dup_group : duplicate_indices) {
-                size_t representative = dup_group[0];
-                
-                if (compare_handles_from_block(*handles[representative], *handles[i], 0)) {
-                    dup_group.push_back(i);
-                    found_group = true;
-                    break;
-                }
-            }
-            
-            // Если не нашли группу, создаем новую
-            if (!found_group) {
-                duplicate_indices.push_back({i});
-            }
-        }
-
-        // Преобразуем индексы в пути
-        for (const auto& indices : duplicate_indices) {
-            if (indices.size() > 1) {
-                std::vector<boost::filesystem::path> duplicate_group;
-                for (size_t idx : indices) {
-                    duplicate_group.push_back(group[idx]);
-                }
-                result.push_back(std::move(duplicate_group));
-            }
+            // Закрываем поток текущего файла
+            handle_i->close_stream();
         }
     }
 

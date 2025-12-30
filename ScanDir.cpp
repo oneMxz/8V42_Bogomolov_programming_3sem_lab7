@@ -19,7 +19,6 @@ ScannerDirectory::ScannerDirectory(int max_level_scan,
 bool ScannerDirectory::is_excluded(const boost::filesystem::path& path) {
     std::string string_path = path.string();
     for(const auto& excluded_dir: exclude_dirs_) {
-        // Приводим к нижнему регистру для регистронезависимого сравнения
         std::string excluded_lower = excluded_dir;
         std::transform(excluded_lower.begin(), excluded_lower.end(),
                       excluded_lower.begin(), ::tolower);
@@ -49,14 +48,12 @@ bool ScannerDirectory::matches_mask(const std::string& filename) {
         std::transform(mask_lower.begin(), mask_lower.end(),
                        mask_lower.begin(), ::tolower);
 
-        // Маска "*" - принимаем все файлы
         if (mask_lower == "*") {
             return true;
         }
 
-        // Маска "*.txt" или ".txt"
         if (mask_lower.size() > 0 && mask_lower[0] == '*') {
-            std::string extension = mask_lower.substr(1); // "*" уже убрали
+            std::string extension = mask_lower.substr(1);
             
             if (filename_lower.size() >= extension.size()) {
                 std::string file_ending = filename_lower.substr(
@@ -68,7 +65,6 @@ bool ScannerDirectory::matches_mask(const std::string& filename) {
                 }
             }
         }
-        // Маска "file.*"
         else if (mask_lower.size() > 0 && mask_lower[mask_lower.size() - 1] == '*') {
             std::string prefix = mask_lower.substr(0, mask_lower.size() - 1);
             
@@ -80,7 +76,6 @@ bool ScannerDirectory::matches_mask(const std::string& filename) {
                 }
             }
         }
-        // Точное совпадение
         else if (filename_lower == mask_lower) {
             return true;
         }
@@ -116,16 +111,20 @@ std::vector<boost::filesystem::path> ScannerDirectory::scan_single_directory(
                         }
                     }
                     else if (boost::filesystem::is_regular_file(entry.status())) {
-                        auto file_size = boost::filesystem::file_size(entry.path());
-                        if (file_size >= min_file_size_) {
-                            std::string filename = entry.path().filename().string();
-                            if (matches_mask(filename)) {
-                                found_files.push_back(entry.path());
+                        try {
+                            auto file_size = boost::filesystem::file_size(entry.path());
+                            if (file_size >= min_file_size_) {
+                                std::string filename = entry.path().filename().string();
+                                if (matches_mask(filename)) {
+                                    found_files.push_back(entry.path());
+                                }
                             }
+                        } catch (const boost::filesystem::filesystem_error&) {
+                            // Пропускаем файлы с ошибками доступа к размеру
+                            continue;
                         }
                     }
                 } catch (const boost::filesystem::filesystem_error&) {
-                    // Пропускаем файлы с ошибками доступа
                     continue;
                 }
             }
@@ -164,7 +163,6 @@ ScannerDirectory::group_files_by_size(const std::vector<boost::filesystem::path>
                 size_map[size].push_back(file);
             }
         } catch (const boost::filesystem::filesystem_error&) {
-            // Пропускаем файлы с ошибками
             continue;
         }
     }

@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
             ("block-size,b", po::value<size_t>()->default_value(4096),
                 "Block size for reading files in bytes")
             ("hash,H", po::value<std::string>()->default_value("crc32"),
-                "Hash algorithm (crc32)");
+                 "Hash algorithm (crc32)");
 
         po::variables_map vm;
         po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -69,10 +69,15 @@ int main(int argc, char* argv[]) {
         auto size_groups = scanner.get_duplicate_groups_by_size(all_files);
         std::cout << "Found " << size_groups.size() << " group(s) of files with same size." << std::endl;
 
-        // Шаг 3: Поиск реальных дубликатов
-        std::cout << "Comparing file contents..." << std::endl;
+        if (size_groups.empty()) {
+            std::cout << "No potential duplicates found." << std::endl;
+            return 0;
+        }
+
+        // Шаг 3: Поиск реальных дубликатов (с ленивым чтением)
+        std::cout << "Comparing file contents (with lazy reading)..." << std::endl;
         Hash hash(block_size);
-        auto duplicates = hash.find_real_duplicates(size_groups);
+        auto duplicates = hash.find_real_duplicates_lazy(size_groups);
 
         // Шаг 4: Вывод результатов
         if (duplicates.empty()) {
@@ -92,7 +97,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Use --help for usage information." << std::endl;
         return 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error:" << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
 
